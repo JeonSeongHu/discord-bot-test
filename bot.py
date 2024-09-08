@@ -128,7 +128,7 @@ async def search_schedule(ctx, *, query: str = None):
     if not query:  # query 인자가 제공되지 않으면
         embed = discord.Embed(title="오류", description="일정 검색을 위한 query가 필요합니다. 예시: `!일정 name:회의, date:2024-09-09`", color=0xff0000)
         pprint(f"Error in 검색 조건 오류: 일정 검색을 위한 query가 필요합니다")
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=30)
         return
 
     conditions = []
@@ -145,18 +145,18 @@ async def search_schedule(ctx, *, query: str = None):
                 valid_conditions =["date", "name", "tag"] 
                 if condition_type not in valid_conditions:
                     embed = discord.Embed(title="검색 조건 오류", description=f"{condition_type}은 유효하지 않은 조건입니다. 조건의 key는 {', '.join(valid_conditions)}만 가능합니다.", color=0xff0000)
-                    await ctx.send(embed=embed)
+                    await ctx.send(embed=embed, delete_after=30)
                     pprint(f"Error in 검색 조건 오류: {condition_type}은 유효하지 않은 조건입니다.")
                     return
                 conditions.append({condition_type.strip(): condition_value.strip()})
             else:
                 embed = discord.Embed(title="오류", description="잘못된 형식입니다. 조건은 'type: value' 형식으로 입력해주세요.", color=0xff0000)
-                await ctx.send(embed=embed)
+                await ctx.send(embed=embed, delete_after=30)
                 return
 
     except ValueError as e:
         embed = discord.Embed(title="쿼리 파싱 오류", description="쿼리를 파싱하는 중 오류가 발생했습니다. 형식이 올바른지 확인해주세요.", color=0xff0000)
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=30)
         pprint(f"Error in 일정 명령어 쿼리 파싱: {str(e)}")
         return
 
@@ -168,7 +168,7 @@ async def search_schedule(ctx, *, query: str = None):
         # 검색 결과가 있는지 확인
         if not result or not result[0]:
             embed = discord.Embed(title="결과 없음", description="Notion에서 해당 조건으로 예정된 스케줄을 찾을 수 없습니다.", color=0xff0000)
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, delete_after=30)
             return
 
         # 검색 결과가 여러 개일 경우 처리
@@ -184,8 +184,8 @@ async def search_schedule(ctx, *, query: str = None):
 
             # 표 형식으로 출력
             embed = discord.Embed(
-                title="검색 결과", 
-                description="다음과 같은 검색 결과가 있습니다. 번호를 선택해주세요.", 
+                title="검색 결과 / 자세히 볼 일정의 **번호를 선택해주세요.**", 
+                description="최대 25개까지 표시됩니다:", 
                 color=0x00ff00
             )
 
@@ -195,8 +195,9 @@ async def search_schedule(ctx, *, query: str = None):
                     value=f"**장소**: {location}\n**날짜**: {date}", 
                     inline=False
                 )
+                if i == 24: break
 
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, delete_after=30)
 
             def check(m):
                 return m.author == ctx.author and m.content.isdigit() and 1 <= int(m.content) <= len(names)
@@ -206,12 +207,16 @@ async def search_schedule(ctx, *, query: str = None):
                 selected_index = int(msg.content) - 1
                 selected_schedule = result[0][selected_index]
                 formatted_info = format_notion_schedule_info(selected_schedule, prefix="-", return_notion_id=True)
-                
+                    
                 embed = discord.Embed(title="선택된 정보", description=f"{formatted_info}", color=0x00ff00)
+                embed.set_footer(text=f"출석/등록을 받기 위해서는 아래의 명령어를 실행하세요:\n!공지생성 {selected_schedule.get('id')} 출석\n!공지생성 {selected_schedule.get('id')} 등록")
                 await ctx.send(embed=embed)
+                if not isinstance(msg.channel, discord.DMChannel):
+                    await msg.delete()
+
             except asyncio.TimeoutError:
                 embed = discord.Embed(title="시간 초과", description="시간이 초과되었습니다. 다시 시도해주세요.", color=0xff0000)
-                await ctx.send(embed=embed)
+                await ctx.send(embed=embed,delete_after=30)
 
         elif len(result[0]) == 1:
             schedule_info = result[0][0]
@@ -220,11 +225,13 @@ async def search_schedule(ctx, *, query: str = None):
             await ctx.send(embed=embed)
         else:
             embed = discord.Embed(title="결과 없음", description="Notion에서 해당 조건으로 예정된 스케줄을 찾을 수 없습니다.", color=0xff0000)
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed,delete_after=30)
     except Exception as e:
         embed = discord.Embed(title="오류 발생", description=f"Notion API 요청 중 문제가 발생했습니다. 조건을 다시 확인해주세요.", color=0xff0000)
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=30)
         pprint(f"Error in 일정 명령어: {str(e)}")
+
+
 
 
 @bot.command(name='멤버', help='Notion에서 특정 이름이나 ID로 멤버를 검색합니다.')
@@ -236,7 +243,8 @@ async def search_member(ctx, query: str=None):
     """
     if not query:  # query 인자가 제공되지 않으면
         embed = discord.Embed(title="오류", description="멤버 검색을 위한 query가 필요합니다. 예시: `!멤버 변서연`", color=0xff0000)
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=30)
+        print("멤버 검색을 위한 query가 필요합니다. 예시: `!멤버 변서연`")
         return
 
     try:
@@ -263,7 +271,7 @@ async def search_member(ctx, query: str=None):
                         if person.get("properties", {}).get("활동 분야", {}).get("multi_select", []) else "N/A"
                         for person in result[0]]
     
-            embed = discord.Embed(title="검색 결과", description=f"다음과 같은 검색 결과가 있습니다. 번호를 선택해주세요:", color=0x00ff00)
+            embed = discord.Embed(title="검색 결과 / 자세히 볼 멤버의 **번호를 선택해주세요.**", description=f"최대 25개까지 표시됩니다.:", color=0x00ff00)
             
             for i, (name, role) in enumerate(zip(names, roles)):
                 embed.add_field(
@@ -271,8 +279,9 @@ async def search_member(ctx, query: str=None):
                     value=f"**분야**: {role}", 
                     inline=False
                 )
+                if i == 24: break
 
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, delete_after=30)
 
             def check(m):
                 return m.author == ctx.author and m.content.isdigit() and 1 <= int(m.content) <= len(names)
@@ -285,9 +294,13 @@ async def search_member(ctx, query: str=None):
                 
                 embed = discord.Embed(title="선택된 정보", description=f"{formatted_info}", color=0x00ff00)
                 await ctx.send(embed=embed)
+
+                if not isinstance(msg.channel, discord.DMChannel):
+                    await msg.delete()
+
             except asyncio.TimeoutError:
                 embed = discord.Embed(title="시간 초과", description="시간이 초과되었습니다. 다시 시도해주세요.", color=0xff0000)
-                await ctx.send(embed=embed)
+                await ctx.send(embed=embed, delete_after=30)
         elif result and len(result[0]) == 1:
             member_info = result[0][0]
             formatted_info = format_notion_member_info(member_info, prefix="-")
@@ -296,15 +309,16 @@ async def search_member(ctx, query: str=None):
             await ctx.send(embed=embed)
         else:
             embed = discord.Embed(title="결과 없음", description="Notion에서 해당 조건으로 멤버를 찾을 수 없습니다.", color=0xff0000)
-            await ctx.send(embed=embed)
+            await ctx.send(embed=embed, delete_after=30)
     except Exception as e:
         embed = discord.Embed(title="오류 발생", description=f"Notion API 요청 중 문제가 발생했습니다. 조건을 다시 확인해주세요.", color=0xff0000)
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=30)
         pprint(f"Error in 멤버 명령어: {str(e)}")
+        
 
 
 @bot.command(name='공지생성', help='노션 일정에 대한 공지를 작성하고 출석/등록을 처리합니다.')
-async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str = "📢"):
+async def create_notice(ctx, notion_page_id: str, notice_type: str =None, emoji: str = "📢"):
     """
     노션 일정 페이지를 기반으로 출석 또는 등록 공지를 작성하는 함수.
     
@@ -315,8 +329,16 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str =
     """
 
     if notice_type not in ["출석", "등록"]:
+        await ctx.message.delete()
         embed = discord.Embed(title="오류", description="공지의 종류는 '등록', '출석' 중 하나여야 합니다. 예시: `!공지생성 [ID] 등록`", color=0xff0000)
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=30)
+        return
+
+    if isinstance(ctx.channel, discord.DMChannel):
+        embed = discord.Embed(title="오류", description="`!공지생성`은 DM에서 실행할 수 없습니다.", color=0xff0000)
+        await ctx.send(embed=embed, delete_after=30)
+        return
+
     try:
         # Notion API를 통해 페이지 정보 가져오기
         notion_client = AsyncClient(auth=NOTION_API_KEY)
@@ -408,7 +430,7 @@ async def update_notion_page_relation(user, notion_client, page_id: str, propert
             }
         )
         schedule_name, member_name = await page_ids_to_titles(notion_client, [page_id, related_page_id])
-        embed = discord.Embed(title="업데이트 완료", description=f"페이지 {schedule_name}의 '{property_name}'에 '{member_name}'가 추가되었습니다.", color=0x00ff00)
+        embed = discord.Embed(title=f"등록 완료", description=f"{schedule_name}의 '{property_name}'에 '{member_name}'가 추가되었습니다.", color=0x00ff00)
         await user.send(embed=embed)  # 사용자에게 DM으로 전송
 
     except Exception as e:
@@ -575,12 +597,11 @@ async def update_absentees_and_send_dm(notion_client, notion_page_id: str, autho
         if absentees_ids:
             absentees = page_data['properties'].get('결석자', {}).get('relation', [])
             absentee_ids_existing = [a['id'] for a in absentees]  # 기존 결석자의 노션 페이지 ID 리스트
-
             # 새로운 결석자 추가 (중복되지 않도록 처리)
             new_absentees = [r_id for r_id in absentees_ids if r_id not in absentee_ids_existing]
             
             if new_absentees:
-                updated_absentees = absentee_ids_existing + [{"id": absentee_id} for absentee_id in new_absentees]
+                updated_absentees = absentees + [{"id": absentee_id} for absentee_id in new_absentees]
 
                 # 결석자 목록 업데이트
                 await notion_client.pages.update(
