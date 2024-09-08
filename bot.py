@@ -39,20 +39,20 @@ async def myinfo(ctx):
     database_id = NOTION_MEMBER_DB_ID
 
     # 검색 결과 가져오기 (Notion에서 사용자 정보 검색)
-    # try:
-    notion_client = AsyncClient(auth=NOTION_API_KEY)
-    result = await search_members_in_database(notion_client, database_id, conditions)
-    
-    # 검색된 결과 출력
-    if result and len(result) > 0:
-        member_info = result[0][0]
-        formatted_info = format_notion_member_info(member_info, prefix="-")  # 결과 포맷팅
-        await ctx.send(f"당신의 정보는 다음과 같습니다:\n {formatted_info}")
-    else:
-        await ctx.send("Notion에서 당신의 정보를 찾을 수 없습니다.")
+    try:
+        notion_client = AsyncClient(auth=NOTION_API_KEY)
+        result = await search_members_in_database(notion_client, database_id, conditions)
+        
+        # 검색된 결과 출력
+        if result and len(result) > 0:
+            member_info = result[0][0]
+            formatted_info = format_notion_member_info(member_info, prefix="-")  # 결과 포맷팅
+            await ctx.send(f"당신의 정보는 다음과 같습니다:\n {formatted_info}")
+        else:
+            await ctx.send("Notion에서 당신의 정보를 찾을 수 없습니다.")
 
-    # except Exception as e:
-    #     await ctx.send(f"오류가 발생했습니다: {str(e)}")
+    except Exception as e:
+        await ctx.send(f"오류가 발생했습니다: {str(e)}")
 
 # 봇 실행
 bot.run(DISCORD_TOKEN)
