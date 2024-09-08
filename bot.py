@@ -54,7 +54,7 @@ async def help_command(ctx):
         # !일정 명령어
         embed.add_field(
             name="🗓️ **!일정**",
-            value="**설명**: Notion 일정 데이터베이스에서 특정 조건으로 일정을 검색하고 결과를 표시합니다.\n**사용 예시**:\n- `!일정 name:branch, date:2024-09-09` (특정 이름과 날짜로 검색)\n- `!일정 location:우정정보관` (장소 기준으로 검색)",
+            value="**설명**: Notion 일정 데이터베이스에서 특정 조건으로 일정을 검색하고 결과를 표시합니다.\n**사용 예시**:\n- `!일정 name:branch, date:2024-09-09` (특정 이름과 날짜로 검색)\n- `!일정 date:next week` (자연어 날짜 검색 지원)",
             inline=False
         )
 
@@ -72,14 +72,13 @@ async def help_command(ctx):
         # !공지생성 명령어
         embed.add_field(
             name="📢 **!공지생성**",
-            value="**설명**: Notion 일정 페이지를 기반으로 출석 또는 등록 공지를 작성하고, 출석 여부를 확인합니다. 노션 ID는 \"!일정\" 으로 검색하세요.\n**사용 예시**:\n- `!공지생성 [노션 페이지 ID] 출석 🚀 60` (출석 공지 작성, 60초간 메세지, 커스텀 이모지 사용)\n- `!공지생성 [노션 페이지 ID] 등록 ` (등록 공지 작성 및 기본 이모지 사용, 등록은 시간 설정 불가)",
+            value="**설명**: Notion 일정 페이지를 기반으로 출석 또는 등록 공지를 작성하고, 출석 여부를 확인합니다. 노션 ID는 \"!일정\" 으로 검색하세요.\n\n\"출석\"은 5분이 지나면 자동으로 종료되며, 종료 시 등록자와 출석자를 비교하여 자동으로 출석 체크가 이루어집니다. 출석 체크 결과는 노션에 자동으로 저장되며, 공지 생성자에게도 DM으로 발송됩니다. \n**사용 예시**:\n- `!공지생성 [노션 페이지 ID] 출석 🚀` (출석 공지 작성, 3분간 유지 후 삭제, 커스텀 이모지 사용)\n- `!공지생성 [노션 페이지 ID] 등록 ` (등록 공지 작성 및 기본 이모지 사용, 시간이 지나도 삭제되지 않음.)",
             inline=False
         )
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
         embed.set_footer(text="각 명령어의 형식과 사용 방법을 참고하세요. 문제가 있을 경우 관리자에게 문의하세요.")
-        embed.set_thumbnail(url="https://example.com/help_icon.png")  # 썸네일 추가
 
         await ctx.send(embed=embed)
     except Exception as e:
@@ -229,7 +228,7 @@ async def search_schedule(ctx, *, query: str = None):
 
 
 @bot.command(name='멤버', help='Notion에서 특정 이름이나 ID로 멤버를 검색합니다.')
-async def search_member(ctx, *, query: str):
+async def search_member(ctx, query: str=None):
     """
     사용자가 제공한 이름 또는 Discord ID로 Notion 데이터베이스에서 멤버를 검색하는 함수.
     
@@ -305,7 +304,7 @@ async def search_member(ctx, *, query: str):
 
 
 @bot.command(name='공지생성', help='노션 일정에 대한 공지를 작성하고 출석/등록을 처리합니다.')
-async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str = "📢", duration: int = None):
+async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str = "📢"):
     """
     노션 일정 페이지를 기반으로 출석 또는 등록 공지를 작성하는 함수.
     
@@ -314,6 +313,10 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str =
     :param emoji: 공지에 사용할 이모지
     :param duration: 초단위로 출석 여부를 확인할 제한 시간 (출석의 경우)
     """
+
+    if notice_type not in ["출석", "등록"]:
+        embed = discord.Embed(title="오류", description="공지의 종류는 '등록', '출석' 중 하나여야 합니다. 예시: `!공지생성 [ID] 등록`", color=0xff0000)
+        await ctx.send(embed=embed)
     try:
         # Notion API를 통해 페이지 정보 가져오기
         notion_client = AsyncClient(auth=NOTION_API_KEY)
@@ -335,6 +338,14 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str =
             description=f"이 메시지에 체크하여 {emoji} {schedule_name}에 {notice_type}해주세요!\n{formatted_info}",
             color=0x00ff00
         )
+
+        if notice_type == "출석":
+            embed.add_field(
+                name="생성 5분 후에는 체크해도 출석으로 등록되지 않습니다.",
+                value="",
+                inline=False
+            )
+        
         bot_message = await ctx.send(embed=embed)
         
         # 이모지 추가 (체크마크)
@@ -347,12 +358,19 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str, emoji: str =
             "emoji": "✅"
         }
 
+        await ctx.message.delete()
+
+
+        duration = 5
+
         # 출석 제한 시간이 설정된 경우
         if notice_type == "출석" and duration:
-            await ctx.send(f"출석 확인 제한 시간: {duration}초")
             await asyncio.sleep(duration)
             await ctx.send(f"출석 확인 시간이 종료되었습니다.")
             del attendance_message_store[bot_message.id]
+
+            # 출석 확인 시간이 종료되면 결석자 업데이트 및 DM 전송
+            await update_absentees_and_send_dm(notion_client, notion_page_id, ctx.author)
 
     except Exception as e:
         embed = discord.Embed(title="오류 발생", description=f"공지 생성 중 오류가 발생했습니다: {str(e)}", color=0xff0000)
@@ -525,6 +543,68 @@ async def on_raw_reaction_remove(payload):
             await user.send(embed=embed)
         pprint(f"Error in on_raw_reaction_remove: {str(e)}")
 
+
+async def update_absentees_and_send_dm(notion_client, notion_page_id: str, author):
+    """
+    등록자 목록과 출석자 목록을 비교하여, 등록자는 있지만 출석하지 않은 사람을 결석자 목록에 추가하고,
+    공지 생성자에게 등록자, 출석자, 결석자 목록을 DM으로 전송하는 함수.
+
+    :param notion_client: Notion 비동기 API 클라이언트
+    :param notion_page_id: 노션 페이지 ID (행사 정보가 포함된 페이지)
+    :param author: 공지 생성 명령어를 실행한 사용자 (DM 전송 대상)
+    """
+    try:
+        # 페이지 정보 가져오기
+        page_data = await notion_client.pages.retrieve(page_id=notion_page_id)
+        
+        # 등록자 목록 가져오기
+        registrants = page_data['properties'].get('등록자', {}).get('relation', [])
+        registrant_ids = [r['id'] for r in registrants]  # 등록자의 노션 페이지 ID 리스트
+        registrant_names = await page_ids_to_titles(notion_client, registrant_ids)  # 등록자 이름 가져오기
+
+        # 출석자 목록 가져오기
+        attendees = page_data['properties'].get('출석자 (인정 결석 포함)', {}).get('relation', [])
+        attendee_ids = [a['id'] for a in attendees]  # 출석자의 노션 페이지 ID 리스트
+        attendee_names = await page_ids_to_titles(notion_client, attendee_ids)  # 출석자 이름 가져오기
+
+        # 등록자는 있지만 출석하지 않은 사람 찾기
+        absentees_ids = [r_id for r_id in registrant_ids if r_id not in attendee_ids]
+        absentee_names = await page_ids_to_titles(notion_client, absentees_ids)  # 결석자 이름 가져오기
+
+        # 결석자 목록에 추가
+        if absentees_ids:
+            absentees = page_data['properties'].get('결석자', {}).get('relation', [])
+            absentee_ids_existing = [a['id'] for a in absentees]  # 기존 결석자의 노션 페이지 ID 리스트
+
+            # 새로운 결석자 추가 (중복되지 않도록 처리)
+            new_absentees = [r_id for r_id in absentees_ids if r_id not in absentee_ids_existing]
+            
+            if new_absentees:
+                updated_absentees = absentee_ids_existing + [{"id": absentee_id} for absentee_id in new_absentees]
+
+                # 결석자 목록 업데이트
+                await notion_client.pages.update(
+                    page_id=notion_page_id,
+                    properties={
+                        "결석자": {
+                            "relation": updated_absentees
+                        }
+                    }
+                )
+                print(f"새로운 결석자가 추가되었습니다: {new_absentees}")
+
+        # DM으로 등록자, 출석자, 결석자 목록 전송
+        message = (
+            f"📋 **출석자 명단**\n{', '.join(attendee_names) if attendee_names else '없음'}\n\n"
+            f"📝 **등록자 명단**\n{', '.join(registrant_names) if registrant_names else '없음'}\n\n"
+            f"❌ **결석자 명단**\n{', '.join(absentee_names) if absentee_names else '없음'}"
+        )
+        embed = discord.Embed(title="출석 확인 결과", description=message, color=0x00ff00)
+        await author.send(embed=embed)
+
+    except Exception as e:
+        print(f"결석자 목록 업데이트 및 DM 전송 중 오류 발생: {str(e)}")
+        await author.send(f"결석자 목록 업데이트 중 오류 발생: {str(e)}")
 
 # 봇 실행
 bot.run(DISCORD_TOKEN)
