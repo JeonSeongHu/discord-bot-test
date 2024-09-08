@@ -50,14 +50,14 @@ operator_map = {
 
 # Supported Date operators map
 date_operator_map = {
-    "after": DateOperator.AFTER,
-    "before": DateOperator.BEFORE,
-    "equals": DateOperator.EQUALS,
+    ">": DateOperator.AFTER,
+    "<": DateOperator.BEFORE,
+    "=": DateOperator.EQUALS,
     "is empty": DateOperator.IS_EMPTY,
     "is not empty": DateOperator.IS_NOT_EMPTY,
-    "not equals": DateOperator.NOT_EQUALS,
-    "on or after": DateOperator.ON_OR_AFTER,
-    "on or before": DateOperator.ON_OR_BEFORE,
+    "!=": DateOperator.NOT_EQUALS,
+    "<=": DateOperator.ON_OR_BEFORE,
+    ">=": DateOperator.ON_OR_AFTER,
 }
 
 # Mapping natural language time expressions to specific date ranges
@@ -103,11 +103,11 @@ def resolve_natural_language_time(expression: str):
         return next_month.date().isoformat(), end_of_next_month.date().isoformat()
 
     # Parse specific dates or datetime formats (e.g., "2024-02-02" or "2021-05-10T12:00:00")
-    parsed_date = dateparser.parse(expression)
+    parsed_date = dateparser.parse(expression,settings={'DATE_ORDER': 'YMD'})
     if parsed_date:
         return parsed_date.date().isoformat(), parsed_date.isoformat()
 
-    return None, None
+    raise ValueError(f"Invalid date or time expression: {expression}")
 
 
 class Condition:
@@ -149,16 +149,38 @@ class Condition:
     def parse_date_conditions(self, property_name: str, condition: str) -> List[Dict[str, Any]]:
         """
         Parse date conditions into separate filters for start and end dates if necessary.
+        Supports operators like >, <, =, !=, is empty, and is not empty.
         """
-        start_date, end_date = resolve_natural_language_time(condition)
-        filters = []
-        if start_date and end_date:
-            filters.append(self.create_date_filter(property_name, DateOperator.ON_OR_AFTER, start_date))
-            filters.append(self.create_date_filter(property_name, DateOperator.ON_OR_BEFORE, end_date))
-        else:
-            operator, value = self.extract_date_operator_and_value(condition)
-            filters.append(self.create_date_filter(property_name, operator, value))
-        return filters
+        try:
+            # Try resolving natural language time (e.g., 'this year', 'next week', etc.)
+            start_date, end_date = resolve_natural_language_time(condition)
+            filters = []
+
+            # Handling natural language expressions like "this year"
+            if start_date and end_date:
+                if condition.startswith(">"):
+                    filters.append(self.create_date_filter(property_name, DateOperator.ON_OR_AFTER, start_date))
+                elif condition.startswith("<"):
+                    filters.append(self.create_date_filter(property_name, DateOperator.ON_OR_BEFORE, end_date))
+                else:
+                    filters.append(self.create_date_filter(property_name, DateOperator.ON_OR_AFTER, start_date))
+                    filters.append(self.create_date_filter(property_name, DateOperator.ON_OR_BEFORE, end_date))
+
+            else:
+                # Handling specific date operators (e.g., !=, =, is empty, is not empty, >, <)
+                operator, value = self.extract_date_operator_and_value(condition)
+                if operator in {DateOperator.IS_EMPTY, DateOperator.IS_NOT_EMPTY}:
+                    # Handle 'is empty' and 'is not empty' cases
+                    filters.append(self.create_date_filter(property_name, operator, value))
+                else:
+                    # Handle regular comparison operators (e.g., =, !=, >, <)
+                    filters.append(self.create_date_filter(property_name, operator, value))
+
+            return filters
+
+        except ValueError as e:
+            raise ValueError(f"Date parsing error for '{property_name}': {str(e)}")
+
 
     def extract_operator_and_value(self, condition: str, filter_type: FilterType) -> (Operator, Any):
         for op in operator_map.keys():
@@ -172,29 +194,46 @@ class Condition:
         return operator, value
 
     def extract_date_operator_and_value(self, condition: str) -> (DateOperator, Any):
+        """
+        Extract date operator and value from the condition string.
+        Supports operators like >, <, =, !=, is empty, and is not empty.
+        """
+        # Handle natural language expressions first
         start_date, end_date = resolve_natural_language_time(condition)
         if start_date and end_date:
-            return DateOperator.ON_OR_AFTER, start_date  # This case will never hit now, as handled in parse_date_conditions()
+            return DateOperator.ON_OR_AFTER, start_date
 
+        # Loop through possible operators and extract the corresponding value
         for op in date_operator_map.keys():
             if condition.startswith(op):
                 operator = date_operator_map[op]
-                date_str = condition[len(op):].strip()
-                if operator in [DateOperator.IS_EMPTY, DateOperator.IS_NOT_EMPTY]:
+                if operator in {DateOperator.IS_EMPTY, DateOperator.IS_NOT_EMPTY}:
+                    # No date value needed for 'is empty' and 'is not empty'
                     return operator, True
-                date_val = dateparser.parse(date_str)
-                if date_val:
-                    return operator, date_val.date().isoformat() if "T" not in condition else date_val.isoformat()
-        return DateOperator.EQUALS, condition
-
+                else:
+                    # Extract the actual date value
+                    date_str = condition[len(op):].strip()
+                    date_val = dateparser.parse(date_str)
+                    if date_val:
+                        return operator, date_val.date().isoformat() if "T" not in date_str else date_val.isoformat()
+        
+        # If no operator is found, default to '=' for exact match
+        return DateOperator.EQUALS, condition.strip()
     def create_filter(self, property_name: str, filter_type: FilterType, operator: Operator, value: Any) -> Dict[str, Any]:
         if operator in {Operator.IS_EMPTY, Operator.IS_NOT_EMPTY}:
             return {"property": property_name, filter_type.value: {operator.value: True}}
         return {"property": property_name, filter_type.value: {operator.value: value}}
 
     def create_date_filter(self, property_name: str, operator: DateOperator, value: Any) -> Dict[str, Any]:
+        """
+        Create a date filter for Notion queries.
+        Handles both date comparisons and empty/not empty conditions.
+        """
         if operator in {DateOperator.IS_EMPTY, DateOperator.IS_NOT_EMPTY}:
+            # For 'is empty' and 'is not empty', we only need a boolean value
             return {"property": property_name, "date": {operator.value: True}}
+        
+        # For other operators, return the appropriate filter with the date value
         return {"property": property_name, "date": {operator.value: value}}
 
     def __and__(self, other: 'Condition') -> 'Condition':
@@ -228,12 +267,11 @@ if __name__ == "__main__":
     condition = Condition(notion_db_metadata)
 
     user_conditions1 = {
-        '날짜': 'this week',
-        '날짜2': 'before 2024-02-02',
+        '날짜': '<= 2024-09-12',
     }
 
     user_conditions2 = {
-        '날짜': 'yesterday'
+        '날짜': '> yesterday'
     }
 
     pprint(condition(user_conditions1).get_filters())
