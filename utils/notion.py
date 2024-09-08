@@ -124,8 +124,6 @@ async def search_members_in_database(notion: AsyncClient, database_id: str,
     # 결과 리스트 반환
     return results
 
-# utils/notion.py
-
 def format_notion_member_info(member_data: Dict[str, Any], prefix: str = "-") -> str:
     """
     Notion 검색 결과를 사용자에게 읽기 쉬운 형식으로 변환하는 함수.
@@ -216,3 +214,90 @@ def format_notion_member_info(member_data: Dict[str, Any], prefix: str = "-") ->
 
 #     # 비동기 실행
 #     asyncio.run(main())
+
+async def find_schedule_in_notion(notion: AsyncClient, condition: Condition, 
+                                 database_id: str,
+                                 name: Optional[str] = None, 
+                                 tag: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Notion 데이터베이스에서 이름, 태그 등 여러 조건을 선택적으로 사용할 수 있는 스케줄 검색 함수.
+    
+    :param notion: Notion 비동기 API 클라이언트 객체
+    :param condition: Condition 객체, Notion 필터 조건 생성에 사용
+    :param database_id: 멤버 데이터베이스 id
+    :param tier: Optional 티어 조건 (TIER Enum)
+    :param name: Optional 이름 조건 (string)
+    :param discord_id: Optional 디스코드 ID 조건 (string 또는 int)
+    :param role: Optional 역할 조건 (ROLES Enum)
+    :return: 검색 결과를 포함한 딕셔너리
+    """
+    filters = {}
+    
+    # 주어진 조건에 따라 필터를 동적으로 추가x
+    if name:
+        filters['이름'] = f"contains {name}"
+    if tag:
+        filters['태그'] = tag
+    
+    # 필터가 주어진 경우에만 조건 생성
+    if filters:
+        cond = condition(filters)
+        result = await notion.databases.query(database_id=database_id, filter=cond.get_filters())  # 비동기 호출
+    else:
+        raise ValueError("At least one condition must be provided.")
+    
+    return result
+
+
+async def search_schedules_in_database(notion: AsyncClient, database_id: str, 
+                                                 conditions_list: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """
+    데이터베이스 ID와 여러 조건 목록을 받아, 각 조건에 맞는 멤버 정보를 비동기적으로 병렬 처리하여 반환하는 함수.
+
+    :param notion: Notion 비동기 API 클라이언트 객체
+    :param database_id: 검색할 Notion 데이터베이스 ID
+    :param conditions_list: 검색할 조건들의 목록 (각 dict는 티어, 이름, role, discord_id 등을 포함)
+    :return: 각 조건에 따른 검색 결과를 리스트 형식으로 반환
+    """
+    
+    # Notion에서 데이터베이스 목록 가져오기
+    databases = await notion.search(filter={"property": "object", "value": "database"})
+    
+    # 입력된 데이터베이스 ID와 일치하는 데이터베이스를 찾기 (ID에서 '-' 제거)
+    target_db_id = database_id.replace("-", "")
+    target_db = None
+    for db in databases['results']:
+        db_id_cleaned = db['id'].replace("-", "")
+        if db_id_cleaned == target_db_id:
+            target_db = db
+            break
+    
+    if not target_db:
+        raise ValueError(f"Database with ID {database_id} not found.")
+    
+    # 조건 필터 객체 초기화
+    condition = Condition(target_db["properties"])
+    
+    # 비동기적으로 여러 조건을 처리
+    async def process_single_condition(cond: Dict[str, Any]) -> List[Dict[str, Any]]:
+        name = cond.get('name')
+        tag = cond.get('tag')
+        
+        # 멤버 검색 수행
+        result = await find_schedule_in_notion(
+            notion=notion,
+            condition=condition,
+            database_id=database_id,
+            name=name,
+            tag=tag,
+        )
+        return result['results']
+    
+    # 모든 조건을 비동기적으로 실행
+    tasks = [process_single_condition(cond) for cond in conditions_list]
+    results = await asyncio.gather(*tasks)
+    
+    # 결과 리스트 반환
+    return results
+
+
