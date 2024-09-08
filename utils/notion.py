@@ -206,7 +206,7 @@ async def find_schedule_in_notion(notion: AsyncClient, condition: Condition,
             ],)  # 비동기 호출
     else:
         raise ValueError("At least one condition must be provided.")
-    
+    # print(result)
     return result
 
 
@@ -283,7 +283,7 @@ def safe_extract(properties: Dict[str, Any], key: str, extract_type: str) -> Opt
             return [relation.get("id") for relation in properties.get(key, {}).get("relation", [])]
         elif extract_type == "multi_select":
             return ', '.join([tag.get("name", "") for tag in properties.get(key, {}).get("multi_select", [])])
-    except (KeyError, IndexError):
+    except (KeyError, IndexError, AttributeError):
         return None
     return None
 
@@ -334,7 +334,7 @@ def format_notion_member_info(member_data: Dict[str, Any], prefix: str = "-") ->
     return '\n'.join(info) if info else "정보가 없습니다."
 
 
-def format_notion_schedule_info(schedule_data: Dict[str, Any], prefix: str = "-") -> str:
+def format_notion_schedule_info(schedule_data: Dict[str, Any], prefix: str = "-", return_notion_id=True) -> str:
     """
     Notion 일정 정보를 사용자에게 읽기 쉬운 형식으로 변환하는 함수.
     
@@ -345,6 +345,7 @@ def format_notion_schedule_info(schedule_data: Dict[str, Any], prefix: str = "-"
     properties = schedule_data.get("properties", {})
     
     # 일정 정보 추출
+    notion_id = schedule_data.get("id")
     name = safe_extract(properties, "이름", "title")
     date = safe_extract(properties, "날짜", "date")
     location = safe_extract(properties, "장소", "rich_text")
@@ -353,14 +354,13 @@ def format_notion_schedule_info(schedule_data: Dict[str, Any], prefix: str = "-"
     # tags = safe_extract(properties, "태그", "multi_select")
     # parent = safe_extract(properties, "상위 항목", "relation")
 
-    notion_id = schedule_data.get("id")
 
 
     # 포맷할 정보 목록
     info = []
 
     # 값이 있는 경우에만 추가
-    if notion_id: info.append(f"{prefix} **노션 ID**: {notion_id}")
+    if notion_id and return_notion_id: info.append(f"{prefix} **노션 ID**: {notion_id}")
     if name: info.append(f"{prefix} **이름**: {name}")
     if date: info.append(f"{prefix} **날짜**: {date}")
     if location: info.append(f"{prefix} **장소**: {location}")
