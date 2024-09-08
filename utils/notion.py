@@ -62,7 +62,9 @@ async def find_members_in_notion(notion: AsyncClient, condition: Condition,
     # 필터가 주어진 경우에만 조건 생성
     if filters:
         cond = condition(filters)
-        result = await notion.databases.query(database_id=database_id, filter=cond.get_filters())  # 비동기 호출
+        result = await notion.databases.query(
+            database_id=database_id, 
+            filter=cond.get_filters(), )  # 비동기 호출
     else:
         raise ValueError("At least one condition must be provided.")
     
@@ -124,61 +126,6 @@ async def search_members_in_database(notion: AsyncClient, database_id: str,
     # 결과 리스트 반환
     return results
 
-def format_notion_member_info(member_data: Dict[str, Any], prefix: str = "-") -> str:
-    """
-    Notion 검색 결과를 사용자에게 읽기 쉬운 형식으로 변환하는 함수.
-    정보를 추출하고, 존재하는 정보만 포함하도록 구성.
-    
-    :param member_data: Notion에서 반환된 멤버 정보 (dict 형식)
-    :param prefix: 각 정보 항목 앞에 붙일 접두어 (기본값: '-')
-    :return: 예쁘게 포맷된 문자열
-    """
-    properties = member_data.get("properties", {})
-    
-    # 정보 추출 (존재하지 않으면 None을 반환)
-    def extract_rich_text(key):
-        return properties.get(key, {}).get("rich_text", [{}])[0].get("plain_text", None)
-
-    def extract_title(key):
-        return properties.get(key, {}).get("title", [{}])[0].get("plain_text", None)
-
-    def extract_multi_select(key):
-        # multi_select가 빈 리스트일 경우, 첫 번째 항목을 가져오지 않음
-        multi_select = properties.get(key, {}).get("multi_select", [])
-        return multi_select[0].get("name", None) if multi_select else None
-
-    name = extract_title("이름")
-    discord_id = extract_rich_text("Discord ID")
-    email = extract_rich_text("이메일")
-    github = extract_rich_text("GitHub (SWE)")
-    phone = extract_rich_text("전화번호")
-    tier_swe = extract_multi_select("티어 (SWE)")
-    tier_devrel = extract_multi_select("티어 (DevRel)")
-    tier_designer = extract_multi_select("티어 (Designer)")
-    role = ', '.join([r.get("name", "") for r in properties.get("활동 분야", {}).get("multi_select", [])]) or None
-    major = extract_rich_text("전공")
-    student_id = extract_rich_text("학번")
-    
-    # 포맷할 정보 목록
-    info = []
-    
-    # 값이 있는 경우에만 추가
-    if name: info.append(f"{prefix} **이름**: {name}")
-    if major: info.append(f"{prefix} **전공**: {major}")
-    if student_id: info.append(f"{prefix} **학번**: {student_id}")
-    if discord_id: info.append(f"{prefix} **Discord ID**: {discord_id}")
-    if email: info.append(f"{prefix} **이메일**: {email}")
-    if github: info.append(f"{prefix} **GitHub**: {github}")
-    if phone: info.append(f"{prefix} **전화번호**: {phone}")
-    if tier_swe: info.append(f"{prefix} **SWE 티어**: {tier_swe}")
-    if tier_devrel: info.append(f"{prefix} **DevRel 티어**: {tier_devrel}")
-    if tier_designer: info.append(f"{prefix} **Designer 티어**: {tier_designer}")
-    if role: info.append(f"{prefix} **역할**: {role}")
-
-    
-    # 존재하는 정보만을 포함한 포맷팅된 문자열 반환
-    return '\n'.join(info) if info else "정보가 없습니다."
-
 
 
 # async def main():
@@ -218,17 +165,18 @@ def format_notion_member_info(member_data: Dict[str, Any], prefix: str = "-") ->
 async def find_schedule_in_notion(notion: AsyncClient, condition: Condition, 
                                  database_id: str,
                                  name: Optional[str] = None, 
-                                 tag: Optional[str] = None) -> Dict[str, Any]:
+                                 tag: Optional[str] = None,
+                                 date: Optional[str] = None) -> Dict[str, Any]:
     """
     Notion 데이터베이스에서 이름, 태그 등 여러 조건을 선택적으로 사용할 수 있는 스케줄 검색 함수.
     
     :param notion: Notion 비동기 API 클라이언트 객체
     :param condition: Condition 객체, Notion 필터 조건 생성에 사용
     :param database_id: 멤버 데이터베이스 id
-    :param tier: Optional 티어 조건 (TIER Enum)
     :param name: Optional 이름 조건 (string)
-    :param discord_id: Optional 디스코드 ID 조건 (string 또는 int)
-    :param role: Optional 역할 조건 (ROLES Enum)
+    :param tag: Optional 태그 조건 (sring)
+    :param date: Optional 날짜 조건 (sring)
+
     :return: 검색 결과를 포함한 딕셔너리
     """
     filters = {}
@@ -238,11 +186,24 @@ async def find_schedule_in_notion(notion: AsyncClient, condition: Condition,
         filters['이름'] = f"contains {name}"
     if tag:
         filters['태그'] = tag
+    if date:
+        filters['날짜'] = date
     
     # 필터가 주어진 경우에만 조건 생성
     if filters:
+        print(filters)
         cond = condition(filters)
-        result = await notion.databases.query(database_id=database_id, filter=cond.get_filters())  # 비동기 호출
+        print(cond.get_filters())
+
+        result = await notion.databases.query(
+            database_id=database_id, 
+            filter=cond.get_filters(),
+            sorts= [
+                {
+                    'property' : "날짜",
+                    'direction': 'ascending'
+                }
+            ],)  # 비동기 호출
     else:
         raise ValueError("At least one condition must be provided.")
     
@@ -282,7 +243,8 @@ async def search_schedules_in_database(notion: AsyncClient, database_id: str,
     async def process_single_condition(cond: Dict[str, Any]) -> List[Dict[str, Any]]:
         name = cond.get('name')
         tag = cond.get('tag')
-        
+        date = cond.get('date')
+
         # 멤버 검색 수행
         result = await find_schedule_in_notion(
             notion=notion,
@@ -290,6 +252,7 @@ async def search_schedules_in_database(notion: AsyncClient, database_id: str,
             database_id=database_id,
             name=name,
             tag=tag,
+            date=date,
         )
         return result['results']
     
@@ -300,4 +263,199 @@ async def search_schedules_in_database(notion: AsyncClient, database_id: str,
     # 결과 리스트 반환
     return results
 
+def safe_extract(properties: Dict[str, Any], key: str, extract_type: str) -> Optional[Union[str, List[str]]]:
+    """
+    Notion 데이터에서 안전하게 값을 추출하는 함수.
+    
+    :param properties: Notion에서 반환된 properties 딕셔너리
+    :param key: 추출할 속성의 키
+    :param extract_type: 추출할 데이터의 유형 (title, rich_text, date, relation, multi_select)
+    :return: 추출된 값 또는 None
+    """
+    try:
+        if extract_type == "title":
+            return properties.get(key, {}).get("title", [{}])[0].get("plain_text", None)
+        elif extract_type == "rich_text":
+            return properties.get(key, {}).get("rich_text", [{}])[0].get("plain_text", None)
+        elif extract_type == "date":
+            return properties.get(key, {}).get("date", {}).get("start", None)
+        elif extract_type == "relation":
+            return [relation.get("id") for relation in properties.get(key, {}).get("relation", [])]
+        elif extract_type == "multi_select":
+            return ', '.join([tag.get("name", "") for tag in properties.get(key, {}).get("multi_select", [])])
+    except (KeyError, IndexError):
+        return None
+    return None
 
+
+def format_notion_member_info(member_data: Dict[str, Any], prefix: str = "-") -> str:
+    """
+    Notion 멤버 정보를 사용자에게 읽기 쉬운 형식으로 변환하는 함수.
+    
+    :param member_data: Notion에서 반환된 멤버 정보 (dict 형식)
+    :param prefix: 각 정보 항목 앞에 붙일 접두어 (기본값: '-')
+    :return: 예쁘게 포맷된 문자열
+    """
+    properties = member_data.get("properties", {})
+    
+    # 멤버 정보 추출
+    name = safe_extract(properties, "이름", "title")
+    discord_id = safe_extract(properties, "Discord ID", "rich_text")
+    email = safe_extract(properties, "이메일", "rich_text")
+    github = safe_extract(properties, "GitHub (SWE)", "rich_text")
+    phone = safe_extract(properties, "전화번호", "rich_text")
+    tier_swe = safe_extract(properties, "티어 (SWE)", "multi_select")
+    tier_devrel = safe_extract(properties, "티어 (DevRel)", "multi_select")
+    tier_designer = safe_extract(properties, "티어 (Designer)", "multi_select")
+    role = safe_extract(properties, "활동 분야", "multi_select")
+    major = safe_extract(properties, "전공", "rich_text")
+    student_id = safe_extract(properties, "학번", "rich_text")
+    notion_id = member_data.get("id")
+
+
+    # 포맷할 정보 목록
+    info = []
+
+    # 값이 있는 경우에만 추가
+    if notion_id: info.append(f"{prefix} **노션 ID**: {notion_id}")
+    if name: info.append(f"{prefix} **이름**: {name}")
+    if major: info.append(f"{prefix} **전공**: {major}")
+    if student_id: info.append(f"{prefix} **학번**: {student_id}")
+    if discord_id: info.append(f"{prefix} **Discord ID**: {discord_id}")
+    if email: info.append(f"{prefix} **이메일**: {email}")
+    if github: info.append(f"{prefix} **GitHub**: {github}")
+    if phone: info.append(f"{prefix} **전화번호**: {phone}")
+    if tier_swe: info.append(f"{prefix} **SWE 티어**: {tier_swe}")
+    if tier_devrel: info.append(f"{prefix} **DevRel 티어**: {tier_devrel}")
+    if tier_designer: info.append(f"{prefix} **Designer 티어**: {tier_designer}")
+    if role: info.append(f"{prefix} **역할**: {role}")
+
+    # 존재하는 정보만을 포함한 포맷팅된 문자열 반환
+    return '\n'.join(info) if info else "정보가 없습니다."
+
+
+def format_notion_schedule_info(schedule_data: Dict[str, Any], prefix: str = "-") -> str:
+    """
+    Notion 일정 정보를 사용자에게 읽기 쉬운 형식으로 변환하는 함수.
+    
+    :param schedule_data: Notion에서 반환된 일정 정보 (dict 형식)
+    :param prefix: 각 정보 항목 앞에 붙일 접두어 (기본값: '-')
+    :return: 예쁘게 포맷된 문자열
+    """
+    properties = schedule_data.get("properties", {})
+    
+    # 일정 정보 추출
+    name = safe_extract(properties, "이름", "title")
+    date = safe_extract(properties, "날짜", "date")
+    location = safe_extract(properties, "장소", "rich_text")
+    # attendees = safe_extract(properties, "출석자 (인정 결석 포함)", "relation")
+    # absentees = safe_extract(properties, "결석자", "relation")
+    # tags = safe_extract(properties, "태그", "multi_select")
+    # parent = safe_extract(properties, "상위 항목", "relation")
+
+    notion_id = schedule_data.get("id")
+
+
+    # 포맷할 정보 목록
+    info = []
+
+    # 값이 있는 경우에만 추가
+    if notion_id: info.append(f"{prefix} **노션 ID**: {notion_id}")
+    if name: info.append(f"{prefix} **이름**: {name}")
+    if date: info.append(f"{prefix} **날짜**: {date}")
+    if location: info.append(f"{prefix} **장소**: {location}")
+    # if attendees: info.append(f"{prefix} **출석자**: {', '.join(attendees)}")
+    # if absentees: info.append(f"{prefix} **결석자**: {', '.join(absentees)}")
+    # if tags: info.append(f"{prefix} **태그**: {tags}")
+    # if parent: info.append(f"{prefix} **상위 항목**: {', '.join(parent)}")
+
+
+    # 존재하는 정보만을 포함한 포맷팅된 문자열 반환
+    return '\n'.join(info) if info else "일정 정보가 없습니다."
+
+
+
+async def _extract_property_from_page_id(notion: AsyncClient, page_id: str, property_id: str) -> Dict[str, Any]:
+    """
+    단일 page_id에 대해 단일 property_id로 속성을 추출하는 함수.
+    
+    :param notion: Notion 비동기 클라이언트
+    :param page_id: Notion 페이지 ID
+    :param property_id: 추출할 속성 ID
+    :return: 페이지 ID와 해당 속성을 포함한 딕셔너리
+    """
+    result = await notion.pages.properties.retrieve(page_id=page_id, property_id=property_id)
+    return result["results"]
+
+async def extract_properties_from_page_id(notion: AsyncClient, page_id: str, property_ids: Union[str, List[str]]) ->  Dict[str, List[Any]]:
+    """
+    단일 page_id에 대해 여러 개의 property를 병렬로 추출하는 함수.
+    
+    :param notion: Notion 비동기 클라이언트
+    :param page_id: Notion 페이지 ID
+    :param property_ids: 추출할 property ID 리스트
+    :return: 페이지 ID와 추출된 property의 리스트
+    """
+    page_ids = [prop_ids] if isinstance(prop_ids, str) else prop_ids
+
+    tasks = [_extract_property_from_notion_page(notion, page_id, prop_id) for prop_id in property_ids]
+    results = await asyncio.gather(*tasks)
+    return results
+
+
+async def _page_id_to_title(notion: AsyncClient, page_id: str) -> str:
+    """
+    주어진 page_id에 대한 제목을 반환하는 함수.
+    
+    :param notion: Notion 비동기 클라이언트
+    :param page_id: Notion 페이지 ID
+    :return: 페이지 제목 (plain_text)
+    """
+    result = await notion.pages.retrieve(page_id=page_id)
+    return result['properties']['이름']['title'][0]['plain_text']
+
+async def page_ids_to_titles(notion: AsyncClient, page_ids: Union[List[str], str]) -> List[str]:
+    """
+    여러 개의 page_id에 대해 병렬로 제목을 추출하는 함수.
+    
+    :param notion: Notion 비동기 클라이언트
+    :param page_ids: 페이지 ID 리스트
+    :return: 제목의 리스트
+    """
+    page_ids = [page_ids] if isinstance(page_ids, str) else page_ids
+
+    tasks = [_page_id_to_title(notion, page_id) for page_id in page_ids]
+    results = await asyncio.gather(*tasks)
+    return results
+
+
+def extract_relation_ids(data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> List[str]:
+    """
+    주어진 relation property list에서 relation id만 추출하는 함수.
+    
+    :param data: relation 정보를 담고 있는 리스트
+    :return: relation ID만을 담은 리스트
+    """
+    data = [data] if isinstance(data, dict) else data
+    return [item['relation']['id'] for item in data if 'relation' in item and 'id' in item['relation']]
+
+def extract_titles_from_pages(data: Union[Dict[str, Any], List[Dict[str, Any]]], property_name = "이름") -> List[str]:
+    """
+    주어진 page data list에서 title property 추출하는 함수.
+    
+    :param data: list of dict or dict (info of pages)
+    :return: title만을 담은 리스트
+    """
+    data = [data] if isinstance(data, dict) else data
+    return [item['properties'][property_name]['title'][0]['plain_text'] for item in data]
+
+def extract_ids_from_pages(data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> List[str]:
+    """
+    주어진 page data list에서 title property 추출하는 함수.
+    
+    :param data: list of dict or dict (info of pages)
+    :return: id만을 담은 리스트
+    """
+    data = [data] if isinstance(data, dict) else data
+    return [item.get("id") for item in data]
+    

@@ -1,5 +1,8 @@
 from enum import Enum
 from typing import List, Dict, Any
+from datetime import datetime
+import dateparser
+
 
 
 # Enum for Filter Types based on Notion data types
@@ -24,6 +27,23 @@ class Operator(Enum):
     IS_NOT_EMPTY = "is_not_empty"
     NOT_EQUALS = "not_equals"
 
+class DateOperator(Enum):
+    AFTER = "after"  # Compare if the date is after the given value.
+    BEFORE = "before"  # Compare if the date is before the given value.
+    EQUALS = "equals"  # Compare if the date is equal to the given value.
+    IS_EMPTY = "is empty"  # Check if the date field is empty.
+    IS_NOT_EMPTY = "is_not_empty"  # Check if the date field is not empty.
+    NOT_EQUALS = "not_equals"  # Compare if the date is not equal to the given value.
+    NEXT_MONTH = "next_month"  # Filter for dates within the next month.
+    NEXT_WEEK = "next_week"  # Filter for dates within the next week.
+    NEXT_YEAR = "next_year"  # Filter for dates within the next year.
+    ON_OR_AFTER = "on_or_after"  # Compare if the date is on or after the given value.
+    ON_OR_BEFORE = "on_or_before"  # Compare if the date is on or before the given value.
+    PAST_MONTH = "past_month"  # Filter for dates within the past month.
+    PAST_WEEK = "past_week"  # Filter for dates within the past week.
+    PAST_YEAR = "past_year"  # Filter for dates within the past year.
+    THIS_WEEK = "this_week"  # Filter for dates within the current week.
+   
 
 # Supported operators map
 operator_map = {
@@ -35,9 +55,27 @@ operator_map = {
     ">": Operator.GREATER_THAN,
     ">=": Operator.GREATER_THAN_OR_EQUAL,
     "empty": Operator.IS_EMPTY,
-    "not_empty": Operator.IS_NOT_EMPTY
+    "not empty": Operator.IS_NOT_EMPTY
 }
 
+# Supported Date operators map
+date_operator_map = {
+    "after": DateOperator.AFTER,
+    "before": DateOperator.BEFORE,
+    "equals": DateOperator.EQUALS,
+    "is empty": DateOperator.IS_EMPTY,
+    "is not empty": DateOperator.IS_NOT_EMPTY,
+    "not equals": DateOperator.NOT_EQUALS,
+    "next month": DateOperator.NEXT_MONTH,
+    "next week": DateOperator.NEXT_WEEK,
+    "next year": DateOperator.NEXT_YEAR,
+    "on or after": DateOperator.ON_OR_AFTER,
+    "on or before": DateOperator.ON_OR_BEFORE,
+    "past month": DateOperator.PAST_MONTH,
+    "past week": DateOperator.PAST_WEEK,
+    "past year": DateOperator.PAST_YEAR,
+    "this week": DateOperator.THIS_WEEK
+}
 
 class Condition:
     def __init__(self, db_metadata: Dict[str, Any]):
@@ -48,8 +86,9 @@ class Condition:
         """
         Processes user-defined conditions and updates the filters.
         """
-        self.filters = self.parse_conditions(conditions)
-        return self
+        new_condition = Condition(self.db_metadata)
+        new_condition.filters = self.parse_conditions(conditions)
+        return new_condition
 
     def parse_conditions(self, conditions: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -80,12 +119,15 @@ class Condition:
 
     def parse_condition(self, property_name: str, filter_type: FilterType, condition: str) -> Dict[str, Any]:
         """
-        Parses a condition string into a filter dictionary.
+        Parses a condition string into a filter dictionary, with support for date properties.
         """
-        # Extract operator from condition
+        # For date properties, use DateOperator mapping
+        if filter_type == FilterType.DATE:
+            operator, value = self.extract_date_operator_and_value(condition)
+            return self.create_date_filter(property_name, operator, value)
+        
+        # Handle other property types
         operator, value = self.extract_operator_and_value(condition, filter_type)
-
-        # Create filter
         return self.create_filter(property_name, filter_type, operator, value)
 
     def extract_operator_and_value(self, condition: str, filter_type: FilterType) -> (Operator, Any):
@@ -104,6 +146,29 @@ class Condition:
         value = condition.strip()
         return operator, value
 
+    def extract_date_operator_and_value(self, condition: str) -> (DateOperator, Any):
+        """
+        Extracts the date operator and value from a condition string.
+        Defaults to "equals" if no operator is found. Uses 'dateparser' for flexible date inputs.
+        """
+        
+        for op in date_operator_map.keys():
+            if condition.startswith(op):                    
+                operator = date_operator_map[op]
+                date_str = condition[len(op):].strip()
+                if date_operator_map[op] in [DateOperator.IS_EMPTY, DateOperator.IS_NOT_EMPTY,]:
+                    value = True
+                elif date_operator_map[op] in [DateOperator.NEXT_MONTH, DateOperator.NEXT_WEEK, DateOperator.NEXT_YEAR, DateOperator.PAST_MONTH, DateOperator.PAST_WEEK, DateOperator.PAST_YEAR, DateOperator.THIS_WEEK]:
+                    value = {}
+                else:
+                    value = dateparser.parse(date_str, settings={'DATE_ORDER': 'YMD'}).strftime('%Y-%m-%d') if date_str else None
+                return operator, value
+
+        # Default to "equals"
+        operator = DateOperator.EQUALS
+        value = dateparser.parse(condition, settings={'DATE_ORDER': 'YMD'}).strftime('%Y-%m-%d')
+        return operator, value
+
     def create_filter(self, property_name: str, filter_type: FilterType, operator: Operator, value: Any) -> Dict[str, Any]:
         """
         Builds a filter dictionary from the property name, filter type, operator, and value.
@@ -116,6 +181,20 @@ class Condition:
         return {
             "property": property_name,
             filter_type.value: {operator.value: value}
+        }
+
+    def create_date_filter(self, property_name: str, operator: DateOperator, value: Any) -> Dict[str, Any]:
+        """
+        Builds a filter dictionary for date properties using the operator and value.
+        """
+        if operator in {DateOperator.IS_EMPTY, DateOperator.IS_NOT_EMPTY}:
+            return {
+                "property": property_name,
+                "date": {operator.value: True}
+            }
+        return {
+            "property": property_name,
+            "date": {operator.value: value}
         }
 
     def combine_conditions(self, other: 'Condition', logic: str) -> 'Condition':
@@ -156,28 +235,24 @@ class Condition:
 # Example usage with Notion database metadata
 if __name__ == "__main__":
     notion_db_metadata = {
-        '티어 (DevRel)': {'id': 'Bmou', 'type': 'multi_select'},
-        '티어 (SWE)': {'id': 'D3u%3C', 'type': 'multi_select'},
-        '학번': {'id': '%7Ccl%3D', 'type': 'rich_text'},
-        '활동 분야': {'id': 'prop_2', 'type': 'multi_select'},
-        '희망 직군 (SWE)': {'id': '3.%3BY', 'type': 'rich_text'}
+        '날짜': {'id': 'Bmou', 'type': 'date'},
+        '날짜2': {'id': 'Bmou1', 'type': 'date'},
+
     }
 
     condition = Condition(notion_db_metadata)
 
     user_conditions1 = {
-        '티어 (DevRel)': 'contains 👥 Member',
-        '학번': '2021001',
-        '활동 분야': 'contains 🎨 Designer',
-        '희망 직군 (SWE)': '!= SWE'
+        '날짜': 'after today',
+        '날짜2': 'after today',
+
     }
 
     user_conditions2 = {
-        '티어 (DevRel)': 'contains 👥 Member',
-        '학번': '2021001',
-        '활동 분야': 'contains 🎨 Designer',
-        '희망 직군 (SWE)': '!= SWE'
+        '날짜': 'this week'
     }
 
+    print(condition(user_conditions1).get_filters())
+    print(condition(user_conditions2).get_filters())
     combined_filters = condition(user_conditions1) | condition(user_conditions2)
     print("Combined OR Filters:\n", combined_filters.get_filters())
