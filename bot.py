@@ -54,5 +54,57 @@ async def myinfo(ctx):
     except Exception as e:
         await ctx.send(f"오류가 발생했습니다: {str(e)}")
 
+
+@bot.command(name='searchinfo', help='Notion에서 특정 이름이나 ID로 멤버를 검색합니다.')
+async def searchinfo(ctx, *, query: str):
+    """
+    사용자가 제공한 이름 또는 Discord ID로 Notion 데이터베이스에서 멤버를 검색하는 함수.
+    
+    :param query: 검색할 이름 또는 Discord ID
+    """
+    # Discord ID인지 이름인지 구분
+    try:
+        # ID가 숫자이면 ID로 검색
+        discord_id = int(query)
+        conditions = [{'discord_id': discord_id}]
+    except ValueError:
+        # ID가 아니면 이름으로 검색
+        name = query
+        conditions = [{'name': name}]
+    
+    database_id = NOTION_MEMBER_DB_ID
+
+    # 검색 결과 가져오기
+    notion_client = AsyncClient(auth=NOTION_API_KEY)
+    result = await search_members_in_database(notion_client, database_id, conditions)
+    
+    # 검색 결과가 여러 개일 경우 처리
+    if result and len(result[0]) > 1:
+        # 결과가 2개 이상이면 이름만 출력하여 선택을 요청
+        names = [member['properties']['이름']['title'][0]['plain_text'] for member in result[0]]
+        name_list = '\n'.join([f"{i+1}. {name}" for i, name in enumerate(names)])
+        
+        await ctx.send(f"다음과 같은 검색 결과가 있습니다. 번호를 선택해주세요:\n{name_list}")
+
+        def check(m):
+            return m.author == ctx.author and m.content.isdigit() and 1 <= int(m.content) <= len(names)
+        
+        try:
+            msg = await bot.wait_for('message', timeout=30.0, check=check)
+            selected_index = int(msg.content) - 1
+            selected_member = result[0][selected_index]
+            formatted_info = format_notion_member_info(selected_member, prefix="-")
+            await ctx.send(f"선택된 정보:\n{formatted_info}")
+        except asyncio.TimeoutError:
+            await ctx.send("시간이 초과되었습니다. 다시 시도해주세요.")
+    elif result and len(result[0]) == 1:
+        # 결과가 하나만 있을 경우 바로 정보 출력
+        member_info = result[0][0]
+        formatted_info = format_notion_member_info(member_info, prefix="-")
+        await ctx.send(f"검색된 정보:\n{formatted_info}")
+    else:
+        # 결과가 없을 경우
+        await ctx.send("Notion에서 해당 조건으로 멤버를 찾을 수 없습니다.")
+
 # 봇 실행
 bot.run(DISCORD_TOKEN)
