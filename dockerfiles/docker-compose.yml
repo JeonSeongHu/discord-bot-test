@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  discord-bot:
+    image: jsh0423/discord-bot
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - NOTION_API_KEY=${NOTION_API_KEY}
+      - NOTION_MEMBER_DB_ID=${NOTION_MEMBER_DB_ID}
+      - NOTION_SCHEDULE_DB_ID=${NOTION_SCHEDULE_DB_ID}
+    restart: always

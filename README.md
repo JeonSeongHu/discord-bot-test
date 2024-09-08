@@ -4,7 +4,6 @@
 이 프로젝트는 **GDSC KU**의 **디스코드 봇**입니다. 이 봇은 **Notion API**와 **Discord API**를 사용하여 GDSC KU 팀의 일정 및 멤버 관리를 효율적으로 돕습니다. Discord 채널에서 명령어를 입력하면 Notion 데이터베이스에서 정보를 가져오거나 업데이트할 수 있습니다.
 
 
-
 ## 명령어 목록
 
 - **!내정보**  
@@ -21,10 +20,11 @@
 
 
 ## 설치 및 실행 방법
+### No Docker 🥹😴
 
 1. **사전 준비**:
    - Notion API와 Discord API의 API 키를 준비합니다.
-   - `.env` 파일을 생성하고, 다음과 같이 **DISCORD_TOKEN**과 **NOTION_API_KEY** 값을 설정합니다:
+   - 루트 디렉토리에 `.env` 파일을 생성하고, 다음과 같이 **DISCORD_TOKEN**과 **NOTION_API_KEY** 값을 설정합니다:
 
      ```bash
      DISCORD_TOKEN=<Your Discord Bot Token>
@@ -42,7 +42,42 @@
    ```bash
    python bot.py
    ```
----
+
+
+### Yes Docker 🥰🤩🐋
+
+
+**1. 준비 사항**
+
+- **Docker** 및 **Docker Compose**가 설치되어 있어야 합니다.
+- **`.env` 파일**이 필요합니다.
+   ```env
+      DISCORD_TOKEN=your_discord_token_here
+      NOTION_API_KEY=your_notion_api_key_here
+      NOTION_MEMBER_DB_ID=your_member_db_id_here
+      NOTION_SCHEDULE_DB_ID=your_schedule_db_id_here
+   ```
+
+
+**2. Docker 사용 명령어**
+1. Docker Hub에서 이미지 가져오기
+
+```bash
+git clone https://github.com/JeonSeongHu/discord-bot-test.git
+cd discord-bot-test
+docker pull jsh0423/discord-bot
+```
+
+2) Docker Compose로 실행
+
+>   `/path/to/your/project/.env`을 실제 파일 경로로 수정해주세요.
+```bash'
+# Docker Compose로 봇 실행
+docker-compose --env-file /path/to/your/project/.env up
+```
+
+
+
 
 ## 상세 기능
 
