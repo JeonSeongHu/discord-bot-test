@@ -383,7 +383,7 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str =None, emoji:
         await ctx.message.delete()
 
 
-        duration = 5
+        duration = 300
 
         # 출석 제한 시간이 설정된 경우
         if notice_type == "출석" and duration:
