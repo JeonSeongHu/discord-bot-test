@@ -6,7 +6,7 @@ from notion_client import Client, AsyncClient
 
 from utils.notion import search_members_in_database, format_notion_member_info
 from utils.notion import search_schedules_in_database, format_notion_schedule_info
-from utils.notion import extract_titles_from_pages, page_ids_to_titles, safe_extract
+from utils.notion import extract_titles_from_pages, page_ids_to_titles, safe_extract, extract_properties_from_page_id, extract_relation_ids_from_response
 from pprint import pprint
 import json, asyncio
 
@@ -383,7 +383,7 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str =None, emoji:
         await ctx.message.delete()
 
 
-        duration = 300
+        duration = 10
 
         # 출석 제한 시간이 설정된 경우
         if notice_type == "출석" and duration:
@@ -392,7 +392,7 @@ async def create_notice(ctx, notion_page_id: str, notice_type: str =None, emoji:
             del attendance_message_store[bot_message.id]
 
             # 출석 확인 시간이 종료되면 결석자 업데이트 및 DM 전송
-            await update_absentees_and_send_dm(notion_client, notion_page_id, ctx.author)
+            await update_absentees_and_send_dm(ctx, notion_page_id)
 
     except Exception as e:
         embed = discord.Embed(title="오류 발생", description=f"공지 생성 중 오류가 발생했습니다: {str(e)}", color=0xff0000)
@@ -469,7 +469,7 @@ async def remove_notion_page_relation(user, notion_client, page_id: str, propert
         )
         schedule_name, member_name = await page_ids_to_titles(notion_client, [page_id, related_page_id])
 
-        embed = discord.Embed(title="관계 제거 완료", description=f"페이지 {schedule_name}의 '{property_name}'에 '{member_name}'가 제거되었습니다.", color=0x00ff00)
+        embed = discord.Embed(title="제거 완료", description=f"페이지 {schedule_name}의 '{property_name}'에 '{member_name}'가 제거되었습니다.", color=0x00ff00)
         await user.send(embed=embed)  # 사용자에게 DM으로 전송
 
     except Exception as e:
@@ -566,7 +566,8 @@ async def on_raw_reaction_remove(payload):
         pprint(f"Error in on_raw_reaction_remove: {str(e)}")
 
 
-async def update_absentees_and_send_dm(notion_client, notion_page_id: str, author):
+@bot.command(name='test', help='노션 일정에 대한 공지를 작성하고 출석/등록을 처리합니다.')
+async def update_absentees_and_send_dm(ctx, notion_page_id: str):
     """
     등록자 목록과 출석자 목록을 비교하여, 등록자는 있지만 출석하지 않은 사람을 결석자 목록에 추가하고,
     공지 생성자에게 등록자, 출석자, 결석자 목록을 DM으로 전송하는 함수.
@@ -575,57 +576,66 @@ async def update_absentees_and_send_dm(notion_client, notion_page_id: str, autho
     :param notion_page_id: 노션 페이지 ID (행사 정보가 포함된 페이지)
     :param author: 공지 생성 명령어를 실행한 사용자 (DM 전송 대상)
     """
-    try:
-        # 페이지 정보 가져오기
-        page_data = await notion_client.pages.retrieve(page_id=notion_page_id)
-        
-        # 등록자 목록 가져오기
-        registrants = page_data['properties'].get('등록자', {}).get('relation', [])
-        registrant_ids = [r['id'] for r in registrants]  # 등록자의 노션 페이지 ID 리스트
-        registrant_names = await page_ids_to_titles(notion_client, registrant_ids)  # 등록자 이름 가져오기
+    author = ctx.author
+    notion_client = AsyncClient(auth=NOTION_API_KEY)
+    # try:
+    # 페이지 정보 가져오기
+    page_data = await notion_client.pages.retrieve(page_id=notion_page_id)
 
-        # 출석자 목록 가져오기
-        attendees = page_data['properties'].get('출석자 (인정 결석 포함)', {}).get('relation', [])
-        attendee_ids = [a['id'] for a in attendees]  # 출석자의 노션 페이지 ID 리스트
-        attendee_names = await page_ids_to_titles(notion_client, attendee_ids)  # 출석자 이름 가져오기
+    registrant_id = page_data['properties'].get('등록자', {}).get('id', "")
+    attendee_id = page_data['properties'].get('출석자 (인정 결석 포함)', {}).get('id', "")
 
-        # 등록자는 있지만 출석하지 않은 사람 찾기
-        absentees_ids = [r_id for r_id in registrant_ids if r_id not in attendee_ids]
-        absentee_names = await page_ids_to_titles(notion_client, absentees_ids)  # 결석자 이름 가져오기
 
-        # 결석자 목록에 추가
-        if absentees_ids:
-            absentees = page_data['properties'].get('결석자', {}).get('relation', [])
-            absentee_ids_existing = [a['id'] for a in absentees]  # 기존 결석자의 노션 페이지 ID 리스트
-            # 새로운 결석자 추가 (중복되지 않도록 처리)
-            new_absentees = [r_id for r_id in absentees_ids if r_id not in absentee_ids_existing]
-            
-            if new_absentees:
-                updated_absentees = absentees + [{"id": absentee_id} for absentee_id in new_absentees]
+    res = await extract_properties_from_page_id(
+                notion_client, 
+                page_id=notion_page_id, 
+                property_ids=[registrant_id, attendee_id])
 
-                # 결석자 목록 업데이트
-                await notion_client.pages.update(
-                    page_id=notion_page_id,
-                    properties={
-                        "결석자": {
-                            "relation": updated_absentees
-                        }
-                    }
-                )
-                print(f"새로운 결석자가 추가되었습니다: {new_absentees}")
+    # relation ID들을 리스트로 추출
+    relation_ids_list = extract_relation_ids_from_response(res)
 
-        # DM으로 등록자, 출석자, 결석자 목록 전송
-        message = (
-            f"📋 **출석자 명단**\n{', '.join(attendee_names) if attendee_names else '없음'}\n\n"
-            f"📝 **등록자 명단**\n{', '.join(registrant_names) if registrant_names else '없음'}\n\n"
-            f"❌ **결석자 명단**\n{', '.join(absentee_names) if absentee_names else '없음'}"
+    # 각 리스트를 개별 변수에 저장
+    registrants_ids, attendees_ids = relation_ids_list
+
+    # 등록자에는 있지만 출석하지 않은 사람 찾기
+    absentees_ids = [r_id for r_id in registrants_ids if r_id not in attendees_ids]
+
+    registrant_names = await page_ids_to_titles(notion_client, registrants_ids)  # 등록자 이름 가져오기
+    attendee_names = await page_ids_to_titles(notion_client, attendees_ids)  # 출석자 이름 가져오기
+    absentee_names = await page_ids_to_titles(notion_client, absentees_ids)  # 결석자 이름 가져오기
+
+    # 결석자 목록에 추가
+    absentees = page_data['properties'].get('결석자', {}).get('relation', [])
+    absentee_ids_existing = [a['id'] for a in absentees]  # 기존 결석자의 노션 페이지 ID 리스트
+    # 새로운 결석자 추가 (중복되지 않도록 처리)
+    new_absentees = [r_id for r_id in absentees_ids if r_id not in absentee_ids_existing]
+    
+    if new_absentees:
+        updated_absentees = absentees + [{"id": absentee_id} for absentee_id in new_absentees]
+
+        # 결석자 목록 업데이트
+        await notion_client.pages.update(
+            page_id=notion_page_id,
+            properties={
+                "결석자": {
+                    "relation": updated_absentees
+                }
+            }
         )
-        embed = discord.Embed(title="출석 확인 결과", description=message, color=0x00ff00)
-        await author.send(embed=embed)
+        print(f"새로운 결석자가 추가되었습니다: {absentee_names}")
 
-    except Exception as e:
-        print(f"결석자 목록 업데이트 및 DM 전송 중 오류 발생: {str(e)}")
-        await author.send(f"결석자 목록 업데이트 중 오류 발생: {str(e)}")
+    # DM으로 등록자, 출석자, 결석자 목록 전송
+    message = (
+        f"📋 **출석자 명단**\n{', '.join(attendee_names) if attendee_names else '없음'}\n\n"
+        f"📝 **등록자 명단**\n{', '.join(registrant_names) if registrant_names else '없음'}\n\n"
+        f"❌ **결석자 명단**\n{', '.join(absentee_names) if absentee_names else '없음'}"
+    )
+    embed = discord.Embed(title="출석 확인 결과", description=message, color=0x00ff00)
+    await author.send(embed=embed)
+
+    # except Exception as e:
+    #     print(f"결석자 목록 업데이트 및 DM 전송 중 오류 발생: {str(e)}")
+    #     await author.send(f"결석자 목록 업데이트 중 오류 발생: {str(e)}")
 
 # 봇 실행
 bot.run(DISCORD_TOKEN)
